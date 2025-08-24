@@ -1,5 +1,5 @@
 # app.py
-# Streamlit + LangGraph RAG over a PDF with:
+# LangGraph RAG over a PDF with additonal features - 
 # 1) history-aware question condensation
 # 2) secondary reranking
 # 3) a hallucination guard that abstains when evidence is weak
@@ -10,7 +10,6 @@ import streamlit as st
 from typing import TypedDict, List, Dict, Any, Optional
 from dataclasses import dataclass
 
-# LangChain / LangGraph
 try:
     from langchain_community.document_loaders import PyMuPDFLoader as PreferredLoader
     _LOADER_NAME = "PyMuPDF"
@@ -21,6 +20,7 @@ try:
     import fitz  # PyMuPDF
 except Exception:
     fitz = None 
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
@@ -29,35 +29,33 @@ from langchain.schema import Document
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.memory import MemorySaver
 
-# -----------------------------
+
 # Config
-# -----------------------------
 EMBED_MODEL = "text-embedding-3-small"
 GPT_MODEL   = "gpt-4o"
 
-# Retrieval knobs (top of app.py)
+
+# Retrieval knobs
 TOP_K_INITIAL = 40      # aggressive recall for specs/tables
 TOP_K_FINAL   = 9       # keep more evidence
 SIM_THRESHOLD = 0.35    # stricter evidence gate for codebook-style PDFs
 
 st.set_page_config(page_title="LangGraph PDF Chabot", layout="wide")
 
-# -----------------------------
+
 # LangGraph State
-# -----------------------------
 class GraphState(TypedDict):
     query: str                         # raw user query
     condensed_query: str               # history-aware rewritten query
     history: List[Dict[str, str]]      # [{"role": "user/assistant", "content": "..."}]
     candidates: List[Document]         # initial retrieved docs (k=TOP_K_INITIAL)
     context: List[Document]            # reranked, top-k final docs
-    scores: List[float]                # cosine scores for `context`
+    scores: List[float]                # cosine scores for context
     guard_pass: bool                   # hallucination guard decision
     answer: str                        # final model output (or abstain message)
 
-# -----------------------------
+
 # Helpers: Build/Cache the Vector Store
-# -----------------------------
 @dataclass
 class RAGIndex:
     vs: FAISS
@@ -68,7 +66,7 @@ def build_index_from_pdf(file_bytes: bytes, file_name: str, embeddings: OpenAIEm
     with open(file_name, "wb") as f:
         f.write(file_bytes)
 
-    # load pages (keep using your PreferredLoader)
+    # load pages (keep using PreferredLoader)
     loader = PreferredLoader(file_name)
     pages = loader.load()  # one Document per physical page
     page_count = len(pages)
@@ -120,9 +118,8 @@ def build_index_from_pdf(file_bytes: bytes, file_name: str, embeddings: OpenAIEm
 
 
 
-# -----------------------------
+
 # Nodes
-# -----------------------------
 def condense_question_node(state: GraphState, llm: ChatOpenAI) -> GraphState:
     """Rewrite follow-ups into a self-contained query using chat history."""
     system = (
@@ -215,9 +212,8 @@ def generate_node(state: GraphState, llm: ChatOpenAI) -> GraphState:
     state["answer"] = resp.content
     return state
 
-# -----------------------------
+
 # Build the graph (wired once)
-# -----------------------------
 def build_graph(retriever, llm, emb):
     g = StateGraph(GraphState)
 
@@ -241,9 +237,8 @@ def build_graph(retriever, llm, emb):
 
     return g.compile(checkpointer=MemorySaver())
 
-# -----------------------------
+
 # Streamlit UI
-# -----------------------------
 st.title("LangGraph PDF Chatbot (history-aware + rerank mechanism + guardrails)")
 
 with st.sidebar:
